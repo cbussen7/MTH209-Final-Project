@@ -1,0 +1,971 @@
+---
+title: "NBA Statistical Analysis"
+output: 
+  flexdashboard::flex_dashboard:
+    theme:
+      bootswatch: materia
+      primary: "#F54242"
+      secondary: "#2196f3"
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+---
+
+<style>
+.chart-title {  /* chart_title  */
+   font-size: 20px;
+  }
+body{ /* Normal  */
+      font-size: 16px;
+  }
+</style>
+
+```{css color tabs}
+/* Set font color of inactive tab to black */
+.nav-tabs-custom .nav-tabs > li > a 
+  {
+    color: #black;
+  } 
+
+/* Set font color of active tab to blue */
+.nav-tabs-custom .nav-tabs > li.active > a 
+  {
+    color: #2196f3;
+  } 
+
+/* To set color on hover */
+.nav-tabs-custom .nav-tabs > li.active > a:hover 
+  {
+    color: grey;
+  }
+
+<style type="text/css"> .sidebar 
+  { 
+    overflow: auto; 
+  } 
+</style>
+```
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+```
+
+```{r data/packages}
+library(pacman)
+p_load(tidyverse, maps, viridis, plotly, DT, gridExtra, fmsb)
+
+nba_advanced <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/nba2021_advanced.csv")
+nba_advanced <- nba_advanced[!duplicated(nba_advanced$Player), ]
+nba_per_game <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/nba2021_per_game.csv")
+nba_per_game <- nba_per_game %>% 
+  mutate(Pos = recode(Pos, 'F-C'='C', 'SF-PF'='SF', 'G'='PG', 'F'='PF', ))
+nba_per_game$Pos <- factor(nba_per_game$Pos,
+                              levels = c("PG", "SG", "SF", "PF", "C"))
+
+
+nba_team_stats <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/nba_team_stats_00_to_21.csv")
+nba_team_stats <- nba_team_stats %>% 
+  filter(SEASON == "2020-21") %>% 
+  rename("team" = "TEAM")
+payroll <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/NBA Payroll(1990-2023).csv")
+payroll <- payroll %>% 
+  filter(seasonStartYear == 2020) %>% 
+  subset(select = c("team", "payroll"))
+
+# convert payroll to int
+payroll$payroll <-gsub("[^0-9.]", "", payroll$payroll)
+payroll$payroll <- as.integer(payroll$payroll)
+
+
+salaries <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/NBA Salaries(1990-2023).csv")
+salaries <- salaries %>% 
+  filter(seasonStartYear == 2020) %>% 
+  rename("Player" = "playerName") %>% 
+  subset(select = c("Player", "salary"))
+
+# convert salary to int
+salaries$salary <- gsub("[^0-9.]", "", salaries$salary)
+salaries$salary <- as.integer(salaries$salary)
+
+
+country <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/nba_all_teams.csv")
+country <- country %>% 
+  rename("Player" = "Player Name") %>% 
+  subset(select = c("Player", "COUNTRY"))
+
+missingCountries <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/missing_countries.csv")
+missingCountries <- missingCountries %>% 
+  subset(select = c("Player", "COUNTRY"))
+country <- rbind(country, missingCountries)
+
+height_and_weight <- read_csv("/Users/christopherbussen/Documents/School/UDS2023/MTH209/finalProject/all_seasons.csv")
+height_and_weight <- height_and_weight %>% 
+  rename("Player" = "player_name",
+         "height" = "player_height",
+         "weight" = "player_weight") %>% 
+  subset(select = c("Player", "height", "weight"))
+# convert to inches
+height_and_weight$height <- height_and_weight$height / 2.54
+# convert to lbs
+height_and_weight$weight <- height_and_weight$weight * 2.20462
+height_and_weight$weight <- round(height_and_weight$weight, 0)
+
+# add country to dataset
+nba_per_game <- nba_per_game %>% 
+  left_join(country, by = "Player")
+
+# add salary to dataset
+nba_per_game <- nba_per_game %>% 
+  left_join(salaries, by = "Player")
+
+nba_advanced <- nba_advanced %>% 
+  left_join(salaries, by = "Player")
+
+# create mpg for nba advanced
+nba_advanced <- nba_advanced %>% 
+  mutate(MPG = MP / G)
+nba_advanced$MPG <- round(nba_advanced$MPG, 1)
+
+# add height and weight to dataset and get rid of duplicate players
+nba_per_game <- nba_per_game %>% 
+  left_join(height_and_weight, by = "Player")
+nba_per_game <- nba_per_game[!duplicated(nba_per_game$Player), ]
+
+nba_team_stats <- nba_team_stats %>% 
+  left_join(payroll, by = "team")
+
+nba_team_stats <- select(nba_team_stats,-teamstatspk, -SEASON)
+
+```
+
+Introduction
+===
+
+Column {.tabset data-width=650}
+-----------------------------------------------------------------------
+
+### Basic Info
+
+<font size = 5>
+**An Analysis of the Correlation Between NBA Statistics**
+</font>
+
+The purpose of this study is to analyze the National Basketball Association and how different statistics, both individual and team, affect each other. In addition to some of the more basic statistics, such as points and assists, I will also study more advanced statistics that have become more significant as NBA teams become more data-oriented. These statistics guide NBA teams and players daily, therefore having an enhanced knowledge on the impact they have can give people important insight into why they make the decisions they do.
+
+I will be using 3 main datasets throughout this presentation (some of which have been combined from more datasets to add in several variables such as player countries, heights, weights, etc.). The player statistics datasets I will be using are based off of the 2020-21 NBA season. They contain data for 481 NBA players and include their per game stats and advanced stats. The last dataset I will be using is for team statistics during the 2020-21 season.
+
+This presentation is tasked with answering some of the following questions:
+
+- How do height and weight affect basic offensive and defensive stats in general, if at all?
+
+- What positions tend to have better stats in each of the main statistical categories? 
+
+- What are some factors that tend to help teams win more games?
+
+- How do different advanced stats correlate with each other for some of the top players?
+
+I will answer these questions using methods from visual exploratory analysis that help point out trends and relationships among different variables.
+
+### Glimpse of Per Game
+
+```{r}
+glimpse(nba_per_game)
+```
+
+### Glimpse of Advanced
+
+```{r}
+glimpse(nba_advanced)
+```
+
+### Glimpse of Team Stats
+
+```{r}
+glimpse(nba_team_stats)
+```
+
+
+Column {data-height=650}
+-----------------------------------------------------------------------
+
+### Explanation of Variables
+
+Below are descriptions of the main variables used in this study:
+
+*Per Game Dataset*
+
+Pos: position (PG, SG, SF, PF, or C)
+
+PTS, AST, TRB, BLK, STL: points per game, assists per game, total rebounds per game, blocks per game, and steals per game
+
+FG%: field goal percentage (shots made / shots attempted)
+
+height: height in inches
+
+weight: weight in pounds
+
+salary: salary in 2020-21 season
+
+COUNTRY: country of birth
+
+*Team Dataset*
+
+team: team name
+
+WIN%: percent of games won (wins / games played)
+
+PPG: points per game by time
+
+3P%: average three point percentage
+
+payroll: amount of money team is spending on players
+
+*Advanced Dataset*
+
+WS: win shares - estimates the number of wins a player produces for his team
+
+WS/48: win shares per 48 minutes
+
+OWS: offensive win shares
+
+TS%: true shooting percentage - measure of shooting efficiency that takes into account field goals, 3-point field goals, and free throws
+
+USG%: usage percentage - estimate of the percentage of team plays used by a player while he was on the floor
+
+PER: player efficiency rating - rating of a player's per-minute productivity
+
+BPM: box plus/minus - estimate of the points per 100 possessions that a player contributed above a league-average player, translated to an average team
+
+OBPM: offensive box plus/minus
+
+DBPM: defensive box plus/minus
+
+VORP: value over replacement player - estimate of the points per 100 team possessions that a player contributed above a replacement-level (-2.0) player, translated to an average team and prorated to an 82-game season - similar to baseball's WAR
+
+### Abstract
+
+From my analysis, I found that height and weight generally do affect the main statistical categories, especially assists, rebounds, blocks, and FG%. Additionally, while most positions score a similar amount of points, different positions tend to be better in the rest of the main box score stats. This analysis also displays how payroll, PPG, and 3P% can help teams improve. Finally, advanced stats like TS%, PER, and VORP are able to inform teams on who will provide the most on-court value and who should be paid more.
+
+
+Player Overview
+===
+
+Column {.tabset}
+-----
+
+### Per Game Table
+
+```{r pg table}
+DT::datatable(nba_per_game[,1:32], rownames = FALSE, 
+              options = list(columnDefs = list(list(className = 'dt-center', targets = 1:31))))
+```
+
+### Advanced Table
+```{r advanced table}
+DT::datatable(nba_advanced[,1:26], rownames = FALSE, 
+              options = list(columnDefs = list(list(className = 'dt-center', targets = 1:25))))
+```
+
+### Team Stats Table
+```{r team table}
+DT::datatable(nba_team_stats[,1:28], rownames = FALSE, 
+              options = list(columnDefs = list(list(className = 'dt-center', targets = 1:27))))
+```
+
+### Birthplaces
+
+```{r world map 1, echo=FALSE}
+world <- map_data("world")
+
+count <- nba_per_game %>% 
+  group_by(COUNTRY) %>% 
+  summarize(count = n())
+
+birthplaces <- count %>% 
+  left_join(world, by = c("COUNTRY" = "region"))
+
+# need to use map and another first geom_polygon to plot the world map by itself 
+# this way map still shows up in areas where there are no players
+p1 <- world %>% 
+  ggplot() +  
+  geom_polygon(aes(x=long, y=lat, group=group, text = region), fill = "grey", alpha=0.5) +
+  geom_polygon(data = birthplaces, aes(x=long, y=lat, group=group, fill = count,  text = paste0(COUNTRY, ":\n", count, " NBA Player(s)"))) +
+  scale_fill_viridis_c(option = "H") +
+  theme_void() + 
+  labs(title = "NBA Players Birthplaces", fill = "# of Players") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(p1, tooltip = "text")
+```
+
+### Birthplaces (filtered)
+
+In this heatmap, I have filtered out all of the players from the US so that we can better see the number of players from other countries.
+
+```{r world map 2}
+birthplaces <- filter(birthplaces, COUNTRY != "USA")
+p2 <- world %>% 
+  ggplot() +  
+  geom_polygon(aes(x = long, y = lat, group = group, text = region), fill = "grey", alpha=0.5) +
+  geom_polygon(data = birthplaces, aes(x = long, y = lat, group = group, fill = count,  text = paste0(COUNTRY, ":\n", count, " NBA Player(s)"))) +
+  scale_fill_viridis_c(option = "H") +
+  theme_void() + 
+  labs(title = "NBA Players Birthplaces", fill = "# of Players") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(p2, tooltip = "text")
+```
+
+
+Height
+===
+
+Column {.tabset data-width=850 .no-padding}
+-----
+
+### Points
+
+```{r}
+# create height group
+nba_per_game$height_group <- cut(nba_per_game$height, breaks = c(66,75,79,83, Inf), labels = c( "<6'4","6'4-6'7","6'8-6'11","6'11+"))
+
+over10ppg <- filter(nba_per_game, nba_per_game$PTS > 10)
+ptsH <- ggplot(over10ppg, aes(x = height, y = PTS)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(70, 85, by=3), limits = c(70, 85)) + 
+  labs(title="Distribution of PPG Based on Height", x="Height (in.)", y="Points") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ptsHGroup <- ggplot(na.omit(over10ppg), aes(x = height_group, y = PTS)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  labs(title ="", x="Height Group", y = NULL) + 
+  theme(text = element_text(size = 10))
+
+grid.arrange(ptsH, ptsHGroup, ncol = 2, widths = c(1.9, 1))
+
+```
+
+
+### Assists
+
+```{r}
+over2ast <- filter(nba_per_game, nba_per_game$AST > 2)
+astsH <- ggplot(over2ast, aes(x = height, y = AST)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(70, 85, by=3), limits = c(70, 85)) + 
+  labs(title="Distribution of APG Based on Height", x="Height (in.)", y="Assists") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+astsHGroup <- ggplot(na.omit(over2ast), aes(x = height_group, y = AST)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  labs(title ="", x="Height Group", y = NULL) + 
+  theme(text = element_text(size = 10))
+
+grid.arrange(astsH, astsHGroup, ncol = 2, widths = c(1.9, 1))
+```
+
+
+### Rebounds
+
+```{r}
+over3rb <- filter(nba_per_game, nba_per_game$TRB > 3)
+rbsH <- ggplot(over3rb, aes(x = height, y = TRB)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(70, 90, by=4), limits = c(70, 90)) + 
+  labs(title="Distribution of RPG Based on Height", x="Height (in.)", y="Rebounds") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+rbsHGroup <- ggplot(na.omit(over3rb), aes(x = height_group, y = TRB)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  labs(title ="", x="Height Group", y = NULL) + 
+  theme(text = element_text(size = 10))
+
+grid.arrange(rbsH, rbsHGroup, ncol = 2, widths = c(1.9, 1))
+```
+
+
+
+### Blocks
+
+```{r}
+blkH <- ggplot(nba_per_game, aes(x = height, y = BLK)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(70, 90, by=4), limits = c(70, 90)) + 
+  labs(title="Distribution of BPG Based on Height", x="Height (in.)", y="Blocks") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+blkHGroup <- ggplot(na.omit(nba_per_game), aes(x = height_group, y = BLK)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  labs(title ="", x="Height Group", y = NULL) + 
+  theme(text = element_text(size = 10))
+
+grid.arrange(blkH, blkHGroup, ncol = 2, widths = c(1.9, 1))
+```
+
+
+### Steals
+
+```{r}
+stlH <- ggplot(nba_per_game, aes(x = height, y = STL)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(70, 90, by=4), limits = c(70, 90)) + 
+  labs(title="Distribution of STL Based on Height", x="Height (in.)", y="Steals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+stlHGroup <- ggplot(na.omit(nba_per_game), aes(x = height_group, y = STL)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  labs(title ="", x="Height Group", y = NULL) + 
+  theme(text = element_text(size = 10))
+
+grid.arrange(stlH, stlHGroup, ncol = 2, widths = c(1.9, 1))
+```
+
+
+
+### FG%
+
+```{r}
+fgH <- ggplot(nba_per_game, aes(x = height, y = `FG%`)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(70, 90, by=4), limits = c(70, 90)) + 
+  labs(title="Distribution of FG% Based on Height", x="Height (in.)", y="FG%") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+fgHGroup <- ggplot(na.omit(nba_per_game), aes(x = height_group, y = `FG%`)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  labs(title ="", x="Height Group", y = NULL) + 
+  theme(text = element_text(size = 10))
+
+grid.arrange(fgH, fgHGroup, ncol = 2, widths = c(1.9, 1))
+
+```
+
+
+Column
+-----------------------------------------------------------------------
+
+### Analysis
+
+I removed any players under 10 PPG, 2 APG, or 3 RPG (in their respective tabs) because every height had a lot of entries with very low values due to players who are on teams but do not play very often.
+
+For points, we can see that most heights tend to have similar ranges due to the fact that there are many people in the NBA who score in the upper 20s per game, but there are also people who have lesser roles and score much less. However, we can see from the box plots that as height noticeably changes, the median points drops.
+
+For assists, we once again see most heights having a similar range except for when you look at the tallest players as it is much lower. The lowest height group has the highest median which makes sense because point guards are typically shorter. On the other hand, the highest height group has the lowest median and varies the least.
+
+Next, for rebounds we can see from both the scatter plot and the box plots that total rebounds per game drastically increases with height. We can see the median increase for each height group as well as higher totals becoming more common.
+
+We can see a similar trend to rebounds for blocks, with the number of blocks per game generally increasing with height. The 6'11+ group has the highest median, however the 6'8-6'11 group has several high outliers, as well as the maximum value.
+
+In general, steals does not seem to be affected too much by height except for when players get to 6'11+. This is because each height typically has values ranging from 0 to 2.
+
+Finally, for FG% we see slight increases as height goes up. Many heights have a few outliers, either at 0 or 1, but we can ignore these (they are players who barely play). Overall, as height group increases we see slight increases in the median FG%, likely because taller players tend to play closer to the rim.
+
+Weight
+===
+Column {.tabset data-width=650}
+-----
+
+### Points 
+
+```{r}
+ggplot(over10ppg, aes(x = weight, y = PTS)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(170, 300, by=25), limits = c(170, 300)) + 
+  labs(title="Distribution of PPG Based on Weight", x="Weight (lbs.)", y="Points") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Assists
+
+```{r}
+ggplot(over2ast, aes(x = weight, y = AST)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(170, 300, by=25), limits = c(170, 300)) + 
+  labs(title="Distribution of APG Based on Weight", x="Weight (lbs.)", y="Assists") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Rebounds
+
+```{r}
+ggplot(over3rb, aes(x = weight, y = TRB)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(170, 300, by=25), limits = c(170, 300)) + 
+  labs(title="Distribution of RPG Based on Weight", x="Weight (lbs.)", y="Rebounds") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Blocks
+
+```{r}
+ggplot(nba_per_game, aes(x = weight, y = BLK)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(160, 315, by=25), limits = c(160, 315)) + 
+  labs(title="Distribution of BPG Based on Weight", x="Weight (lbs.)", y="Blocks") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Steals
+
+```{r}
+ggplot(nba_per_game, aes(x = weight, y = STL)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(160, 315, by=25), limits = c(160, 315)) + 
+  labs(title="Distribution of STL Based on Weight", x="Weight (lbs.)", y="Steals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### FG%
+
+```{r}
+ggplot(nba_per_game, aes(x = weight, y = `FG%`)) + 
+  geom_point(col = "#2196f3") + 
+  scale_x_continuous(breaks = seq(160, 315, by=25), limits = c(160, 315)) + 
+  labs(title="Distribution of FG% Based on Weight", x="Weight (lbs.)", y="FG%") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Column
+---
+
+### Analysis
+
+Once again, I removed any players under 10 PPG, 2 APG, or 3 RPG to reduce the impact players who do not play often would have on the data.
+
+Overall, for the direct impact of weight on basic statistics, we do not see as strong of a relationship as we do for height. This is likely because players have many different builds and it can impact their role.
+
+For points, we can see that the NBA's top scorers range anywhere from about 180 to 280 lbs. However, as weight increases past about 220 lbs, we see more of the data concentrated towards a lower amount of points. 
+
+Moving on to assists, we see a similar trend where as weight increases, the majority of the data tends to get lower. We can also see that a majority of the players with 8 or more assists weigh 220 lbs or less.
+
+For rebounds, we see a slightly stronger relationship where as weight increases, total rebounds goes up noticeably. Until about 220 lbs, we see the vast majority of the data concentrated below 7.5 rebounds. Moving past this mark, we begin to see many more higher totals, including several around 13.
+
+Blocks are similar to rebounds as we see a general increase with weight. Additionally, we see the three highest values around the 250 lbs mark.
+
+Typically, weight does not really have a noticeable impact on the number of steals a player gets. However, we can see that a lot of the higher values are on the lower end of weight.
+
+Finally, for FG% we once again see a noticeable increase with weight. Ignoring the outliers at 1, almost all of the highest values for FG% are on the heavier end. We can also see that all of the heaviest players have relatively high values. Again, this is because heavier players tend to play closer to the rim and use their weight to move people around.
+
+Position Analysis
+===
+
+Column {.tabset data_width=650}
+---
+
+### Points
+
+```{r}
+ggplot(nba_per_game, aes(x = Pos, y = PTS)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  scale_y_continuous(breaks = seq(0, 35, by=5), limits = c(0, 35)) + 
+  labs(title="Effect of Position on PPG", x="Position", y="Points") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Assists
+
+```{r}
+ggplot(nba_per_game, aes(x = Pos, y = AST)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  scale_y_continuous(breaks = seq(0, 12, by=2), limits = c(0, 12)) + 
+  labs(title="Effect of Position on APG", x="Position", y="Assist") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Rebounds
+
+```{r}
+ggplot(nba_per_game, aes(x = Pos, y = TRB)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  scale_y_continuous(breaks = seq(0, 15, by=3), limits = c(0, 15)) + 
+  labs(title="Effect of Position on RPG", x="Position", y="Rebounds") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Blocks
+
+```{r}
+ggplot(nba_per_game, aes(x = Pos, y = BLK)) + 
+  geom_boxplot(fill = "#2196f3")  + 
+  scale_y_continuous(breaks = seq(0, 3.5, by=.5), limits = c(0, 3.5)) + 
+  labs(title="Effect of Position on BPG", x="Position", y="Blocks") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Steals
+
+```{r}
+ggplot(nba_per_game, aes(x = Pos, y = STL)) + 
+  geom_boxplot(fill = "#2196f3")  + 
+  scale_y_continuous(breaks = seq(0, 2, by=.5), limits = c(0, 2)) + 
+  labs(title="Effect of Position on STL", x="Position", y="Steals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### FG%
+
+```{r}
+ggplot(nba_per_game, aes(x = Pos, y = `FG%`)) + 
+  geom_boxplot(fill = "#2196f3") + 
+  scale_y_continuous(breaks = seq(0, 1, by=.25), limits = c(0, 1)) + 
+  labs(title="Effect of Position on FG%", x="Position", y="FG%") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Avg. Salary
+
+```{r avg salary ~ pos}
+avgPosSalary <- over10ppg %>% 
+  group_by(Pos) %>% 
+  summarise(
+    avgSalary = mean(salary, na.rm = T)
+  )
+
+avgSalaries <- ggplot(avgPosSalary, aes(x = Pos, y = avgSalary)) + 
+  geom_col(fill = "#2196f3", aes(text = paste0("Position: ", Pos, "\nAverage Salary: $", round(avgSalary,0)))) + 
+  labs(title="Average Salary by Position", x="Position", y="Average Salary ($)") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_y_continuous(breaks = seq(0, 20000000, by=4000000), limits = c(0, 20000000), labels = scales::comma)
+
+ggplotly(avgSalaries, tooltip = "text")
+```
+
+### Radar Chart
+
+```{r radar}
+avgStats <- over10ppg %>% 
+  group_by(Pos) %>% 
+  summarise(
+    avgPts = mean(PTS),
+    avgAst = mean(AST),
+    avgRb = mean(TRB),
+    avgStl = mean(STL),
+    avgBlk = mean(BLK),
+    avgFG = mean(`FG%`)
+  )
+avgStats <- avgStats[,-1]
+rownames(avgStats) = c("PG", "SG", "SF", "PF", "C")
+
+max_min <- data.frame(
+  avgPts = c(20, 10), avgAst = c(8, 0), avgRb = c(10, 0),
+  avgStl = c(1.5, 0), avgBlk = c(1.5, 0), avgFG = c(.6, .4)
+)
+rownames(max_min) <- c("Max", "Min")
+
+# Bind the variable ranges to the data
+radar <- rbind(max_min, avgStats)
+
+# FROM: https://www.datanovia.com/en/blog/beautiful-radar-chart-in-r-using-fmsb-and-ggplot-packages/
+create_beautiful_radarchart <- function(data, color = "#00AFBB", 
+                                        vlabels = colnames(data), vlcex = 0.7,
+                                        caxislabels = NULL, title = NULL, ...){
+  radarchart(
+    data, axistype = 1,
+    # Customize the polygon
+    pcol = color, pfcol = scales::alpha(color, 0.1), plwd = 2, plty = 1,
+    # Customize the grid
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
+    # Customize the axis
+    axislabcol = "grey", 
+    # Variable labels
+    vlcex = vlcex, vlabels = vlabels,
+    caxislabels = caxislabels, title = title, ...
+  )
+}
+
+op <- par(mar = c(1, 2, 2, 2))
+create_beautiful_radarchart(
+  data = radar, caxislabels = c("","","","",""),
+  color = c("red", "blue", "yellow", "purple", "green"),
+  title = "Average Statistics by Position"
+)
+
+legend(
+  x = "topright", legend = rownames(radar[-c(1,2),]), horiz = FALSE,
+  bty = "n", pch = 20 , col = c("red", "blue", "yellow", "purple", "green"),
+  text.col = "black", cex = 1, pt.cex = 1.5
+  )
+
+par(op)
+
+
+```
+
+Column
+---
+
+### Analysis
+
+In this section, I looked at the stats for each individual position to see where some shine and others struggle. For the average salary and radar chart, I used only players with over 10 PPG again to only consider relevant players.
+
+For points, we see that the medians for point guard and shooting guard are the highest just by a little bit, because they typically have the ball in their hands the most. Point guards also tend to vary the most while shooting guards have the most outliers.
+
+Next, point guards have noticeably the most assists with a median around 3. They also have the highest IQR and it is not uncommon for point guards to get over 9 assists. After point guards, the highest median is shooting guards, followed by small forwards, power forwards, and centers who all have similar values. We can also see that power forwards have the most outliers.
+
+For rebounds, the median increases as we go from point guard to center, with a relatively large jump between power forward and center. Point guards and shooting guards are very similar except for the fact that there are a few point guard outliers. 
+
+Looking at blocks, we see that centers have by far the most blocks as well as the highest outliers. Point guards and shooting guards have very small medians, and them and small forwards tend to vary a small amount. Power forwards vary slightly more and have a few outliers, but still do not have a high median.
+
+When it comes to steals, we see that every position except for center tends to vary a similar amount. Going by median, point guards tend to get the most steals, closely followed by shooting guards. After this, there's a drop off to small forward and power forward, and centers get the least steals.
+
+For FG%, we see centers with the highest median while the rest of the positions are somewhat similar. Shooting guards tend to vary the least and have the most low outliers.
+
+In terms of salary, we see that point guards make by far the most money - over $18,000,000, on average. After this comes small forwards and power forwards, who tend to make a little over \$16,000,000. Centers are a little bit lower, around \$14,500,000, and then shooting guards tend to make by far the least, averaging under \$12,000,000.
+
+Finally, from the radar chart we can visualize what stats each position succeeds in and needs to improve compared to each other. 
+
+Team Analysis
+===
+
+Column {.tabset data_width=650}
+---
+
+### Payroll by Team
+
+```{r}
+nba_team_stats$abb <- c("PHX", "GSW", "MEM", "MIA", "CHI", "MIL", "CLE", "PHI",
+                        "UTA", "DAL", "TOR", "BKN", "DEN", "BOS", "MIN", "CHA", 
+                        "LAC", "LAL", "ATL", "WAS", "NYK", "NOP", "POR", "SAS", 
+                        "SAC", "IND", "OKC", "HOU", "DET", "ORL")
+
+nba_team_stats <- nba_team_stats %>% 
+  arrange(payroll)
+
+teamSalaries <- ggplot(nba_team_stats, aes(x = abb, y = payroll)) + 
+  geom_col(fill = "#2196f3", col = "#dfe3ee", aes(text = paste0("Team: ", nba_team_stats$team, "\nPayroll: $", payroll))) + 
+  coord_flip() + 
+  labs(title="Payroll for each NBA Team", x="Payroll ($)", y="Team") + 
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), text = element_text(size = 10)) +
+  scale_y_continuous(labels = scales::comma)
+
+ggplotly(teamSalaries, tooltip = "text")
+  
+```
+
+
+### Payroll vs. Wins
+
+```{r payroll scatter}
+payroll <- ggplot(nba_team_stats, aes(x = payroll, y = `WIN%`)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Team: ", nba_team_stats$team, "\nPayroll: $", payroll, "\nWin %: ", nba_team_stats$`WIN%`))) + 
+  scale_x_continuous(breaks = seq(90000000, 175000000, by=20000000), limits = c(90000000, 175000000), labels = scales::comma) + 
+  scale_y_continuous(breaks = seq(0, 1, by=.25), limits = c(0,1)) + 
+  labs(title="Effect of Payroll on Win Percentage", x="Payroll ($)", y="Win %") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(payroll, tooltip = "text")
+```
+
+
+### PPG vs. Wins
+
+```{r ppg scatter}
+ppg <- ggplot(nba_team_stats, aes(x = PTS, y = `WIN%`, label = team)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Team: ", nba_team_stats$team, "\nPoints Per Game: ", PTS, "\nWin %: ", nba_team_stats$`WIN%`))) + 
+  scale_x_continuous(breaks = seq(100, 115, by=3), limits = c(100, 115)) +
+  scale_y_continuous(breaks = seq(0, 1, by=.25), limits = c(0,1)) +
+  labs(title="Effect of Points Per Game on Win Percentage", x="PPG", y="Win %") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(ppg, tooltip = "text")
+```
+
+
+### 3P% vs. Wins
+
+```{r 3p scatter}
+threePct <- ggplot(nba_team_stats, aes(x = `3P%`, y = `WIN%`, label = team)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Team: ", nba_team_stats$team, "\n3P%: ", `3P%`, "\n3PM: ", nba_team_stats$`3PM`, "\n3PA: ", nba_team_stats$`3PA`, "\nWin %: ", nba_team_stats$`WIN%`))) + 
+  scale_x_continuous(breaks = seq(30, 40, by=2), limits = c(30, 40)) + 
+  labs(title="Effect of 3 Point Percentage on Win Percentage", x="3P%", y="Win %") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(threePct, tooltip = "text")
+```
+
+Column
+---
+
+### Analysis
+
+First and foremost, we see that all but one team (Oklahoma City Thunder) have a payroll over \$100,000,000. We also see many teams hovering around \$130,000,000, which is slightly under the amount where teams would be subject to the NBA luxury tax. The Warriors and Nets have the highest payrolls, slightly over \$170,000,000. We will now look at how team's payrolls affect winning.
+
+Right away we can see a general trend - teams that are willing to spend more money tend to have a higher winning percentage. Both the Nets and Warriors, who have the highest payrolls, win more than 50% of their games (the Warriors win over 75%). While we do see instances of teams not spending a ton of money and still having high win percentages (Suns and Grizzlies for example), we can see that most of the low-performing teams in the league tend to not spend a lot of money (Thunder, Kings, and Pistons for example).
+
+We also see a strong correlation between points per game and win percentage. Every team that scores over 112 points per game has a winning percentage over 0.5, while every team that scores under 106 points per game is below 0.5. It is also important to note the Warriors, scoring just under 111 per game and winning 75.5% of their games.
+
+Lastly, I wanted to look at the effect of a team's 3P% on winning percentage, as the NBA has become more focused on shooting in the last decade. Overall, there is a slight correlation as teams that shoot above 36% tend to win most of their games (such as the Suns and Warriors, both shooting slightly over 36% from deep). Additionally, we see that the teams shooting in the lower 30%s tend to struggle to pick up wins (like the Pistons and Magic). However, we can also see instances of teams not shooting great from three yet still winning the majority of their games (Grizzlies shoot 33.9% yet win 67% of their games).  
+
+
+Advanced Stats
+===
+
+Column {.tabset data-width=650}
+---
+
+### Highest WS
+
+```{r}
+best50 <- nba_advanced %>% 
+  arrange(desc(WS)) %>% 
+  slice(1:50)
+
+DT::datatable(best50[,1:28], rownames = FALSE, 
+              options = list(columnDefs = list(list(className = 'dt-center', targets = 1:27))))
+```
+
+### Variable Correlation
+
+```{r}
+library(corrgram)
+corrgram(best50,
+         order = TRUE,              # If TRUE, PCA-based re-ordering
+         upper.panel = panel.pie,   # Panel function above diagonal
+         lower.panel = panel.shade, # Panel function below diagonal
+         text.panel = panel.txt,    # Panel function of the diagonal
+         main = "Correlation between Advanced Statistics") 
+```
+
+
+### TS% vs. OWS
+
+```{r}
+
+ts <- ggplot(best50, aes(x = `TS%`, y = OWS, label = Player)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Player: ", best50$Player, "\nPosition: ", best50$Pos, "\nTrue Shooting %: ", `TS%`, "\nOWS: ", best50$OWS, "\nUSG%: ", best50$`USG%`))) + 
+  scale_x_continuous(breaks = seq(0.5, 0.75, by=.05), limits = c(0.5, 0.75)) +
+  labs(title="Relationship between TS% and OWS", x="TS%", y="OWS") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(ts, tooltip = "text")
+```
+
+### PER vs. WS/48
+
+```{r per vs ws}
+perWS <- ggplot(best50, aes(x = PER, y = `WS/48`, label = Player)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Player: ", best50$Player, "\nPER: ", best50$PER, "\nWS/48: ", best50$`WS/48`, "\nMPG: ", best50$MPG))) + 
+  labs(title="Relationship between PER and WS/48", x="PER", y="WS/48") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(perWS, tooltip = "text")
+```
+
+
+### DBPM vs. VORP
+
+```{r}
+WSmin <- ggplot(best50, aes(x = DBPM, y = VORP, label = Player)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Player: ", best50$Player, "\nDBPM: ", best50$DBPM, "\nVORP: ", best50$VORP))) + 
+  labs(title="Effect of DBPM on VORP", x="DBPM", y="VORP") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(WSmin, tooltip = "text")
+```
+
+### OBPM and DBPM
+
+```{r}
+bpm <- ggplot(best50, aes(x = OBPM, y = DBPM, label = Player)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Player: ", best50$Player, "\nOBPM: ", best50$OBPM, "\nDBPM: ", best50$DBPM, "\nOverall BPM: ", best50$BPM))) + 
+  labs(title="Offensive and Defensive Box Plus Minus for Top Players", x="OBPM", y="DBPM") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(bpm, tooltip = "text")
+```
+
+### VORP vs. Salary
+
+```{r vorp x salary}
+vorpSal <- ggplot(best50, aes(x = VORP, y = salary, label = Player)) + 
+  geom_point(col = "#2196f3", aes(text = paste0("Player: ", best50$Player, "\nVORP: ", best50$VORP, "\nSalary: $", best50$salary))) + 
+  labs(title="Relationship between VORP and Salary", x="VORP", y="Salary ($)") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_y_continuous(labels = scales::comma)
+
+ggplotly(vorpSal, tooltip = "text")
+```
+
+Column
+---
+
+### Analysis
+
+In this section, I decided to break down the dataset into players in the top 50 for WS. This is because I wanted to get rid of people who don't play much or make an impact, and WS ranks overall play and takes into account minutes played. 
+
+I decided to look at the relationship between TS% and OWS because I wanted to see how much of an impact a player shooting not efficiently versus very efficiently has on their overall offensive impact (measured in offensive win shares). I found that the players with the lowest TS% tend have some of the lower offensive win shares out of the top 50 players. Despite this, TS% does not tell us everything because there are still several players (such as Derrick Favors), who have very high TS% values but low OWS. This is because their usage is not very high and TS% does not take this into account. We can see, though, that players with especially high OWS have a high TS% as well. Generally, TS% and OWS have a positive correlation with each other.
+
+I thought it would be interesting to plot PER and WS/48 together because PER deals with how efficient a player is, while WS/48 is basically how much they contribute to winning each individual game. I assumed there would be a strong positive relationship between efficiency and winning, which we can see in the scatter plot. In general, players with low efficiency ratings tend to have a low WS/48. On the other hand, as PER rises, WS/48 almost always does too. A prime example here is two-time MVP Nikola Jokic, who is in the top right corner with the highest PER and the highest WS/48.
+
+Next, I wanted to see if there would be a strong relationship between DBPM (an overall measure of defensive contributions) and VORP (a measure of a player's total value). I found this intriguing because one supposed flaw with VORP is that it doesn't take defense into account as much as it should. From the plot, we can see that, in general, this is likely true. This is because as DBPM increased, VORP did not have any noticeable change throughout most of the players.
+
+I created a plot of OBPM and DBPM just to visualize which end of the floor all of the top 50 players are contributing on. Overall, we can see that some of the top players in both of these statistics are Anthony Davis, Giannis Antetokounmpo, Lebron James, Joel Embiid, and Nikola Jokic (meaning they contribute on offense and defense). Some of the bottom players according to this figure are Deandre Ayton and Enes Kanter. Additionally, Ben Simmons is one player who provides most of his value on the defensive end (high DBPM, low OBPM), while Damian Lillard does the opposite.
+
+Finally, I wanted to see if VORP, an overall stat about a player's value in a season, has a correlation with salary. This is because many teams are starting to become more analytically focused, and might factor advanced stats like VORP into their decisions when offering contracts to players. From this scatter plot, we are able to see that players with higher VORP tend to make more money. However, there are still players with a high VORP who are still on a more team-friendly deal but will make more money in the future (like Nikola Jokic). Additionally, there are players who do not have very high VORP but are making a lot of money from a contract they signed prior to regressing (such as Mike Conley).
+
+
+Conclusion
+===
+
+Column {data-length=650}
+---
+
+### Results
+
+From my analysis, I found that height and weight do tend to affect some of the main statistical categories, especially assists, rebounds, blocks, and FG% while they do not impact points and steals as much.
+
+Additionally, I discovered that most positions score a similar amount of points (according to the median), point guards get the most assists, centers get the most rebounds, centers get the most blocks (by far), guards get the most steals, centers have the highest FG%, and point guards make the most money while shooting guards make the least.
+
+When it comes to winning more games, teams can get a good start by increasing their payroll to get better players as well as creating a game plan that helps them focus on scoring more points and shooting a better percentage from the three point line.
+
+Finally, with the help of advanced stats, we were able to see that players who shoot the ball more efficiently (higher TS%) tend to have more offensive value. Additionally more efficient players according to PER contribute the most to winning a single game. Another thing we saw is that VORP likely does not take defense into account as much it should, as many people have claimed. Finally, we see that many players who are ranked more valuable according to advanced stats tend to make more money.
+
+### Limitations
+One of the major limitations of this study is that the best dataset I could find was from the 2020-21 NBA season. There were other NBA datasets that I could have used, yet this was the only one that included the advanced stats that many analysts look at today. While this is still recent enough to provide insight on the NBA today, one more limitation is that the dataset was created in the middle of the 20-21 season. As a result, the sample size for the players' statistics is only part of a season.
+
+Due to this, some of the main assumptions that I had to make were that a player's statistics from this smaller sample size would not vary too much when played out over an entire season. This assumption is typically safe to make for many of the game's top players because we can see consistency in their numbers over the past few years. Additionally, because teams did not have a full season record listed, I also assumed that their winning percentage would stay approximately the same if an entire season was played.
+
+### References 
+https://www.kaggle.com/datasets/umutalpaydn/nba-20202021-season-player-stats
+
+https://www.kaggle.com/datasets/justinas/nba-players-data
+
+https://www.kaggle.com/datasets/loganlauton/nba-players-and-team-data?select=NBA+Payroll%281990-2023%29.csv
+
+
+About the Author
+===
+
+Column {data-width = 650}
+---
+
+### About Me
+My name is Christopher Bussen and I am an undergraduate student at the University of Dayton. I am currently working towards my B.S. in Computer Science with minors in Mathematics and Data Analytics and am on track to graduate in May 2024.
+
+After graduation, I am interested in pursuing full-time employment in a data analytics position, especially one that allows me to combine my love of sports and math. 
+
+I have exposure to Google Analytics, SPSS, SQL, Golang, Tableau, pandas, and Git, and I am proficient in Java, Python, R, HTML, CSS, and MS 365 applications.
+
+In the future, I would be interested in doing a similar study more focused on the interaction between team stats and players. I think this could be especially interesting because it could be used to make informed decisions team personnel as well as areas that they may want to focus on training their current players more. 
+
+Please connect with me on LinkedIn [here](https://www.linkedin.com/in/christopherbussen/).
+
+Column {.tabset data-width = 600}
+---
+
+### Picture
+
+```{r , fig.width=6, echo=FALSE, fig.cap="Christopher Bussen", fig.align='center'}
+knitr::include_graphics("headshot.jpeg")
+```
+
